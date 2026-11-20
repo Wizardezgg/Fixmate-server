@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import servicesRouter from "./routes/services.js";
 
 dotenv.config();
 
@@ -52,6 +53,8 @@ app.get("/api/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use("/api/services", servicesRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
