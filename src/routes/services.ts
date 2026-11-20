@@ -1,14 +1,47 @@
 import { Request, Response, Router } from "express";
 import { Filter, ObjectId, Sort } from "mongodb";
 import { bookingsCollection, servicesCollection, usersCollection } from "../config/db.js";
-import { ServiceDoc } from "../types/index.js";
+import { verifyTechnician, verifyToken } from "../middleware/auth.js";
+import { ServiceCategory, ServiceDoc, ServiceMode } from "../types/index.js";
 import { attachServiceRatings } from "../utils/ratings.js";
 
 const router = Router();
 
+const VALID_CATEGORIES: ServiceCategory[] = [
+  "Smartphone",
+  "Laptop & PC",
+  "AC",
+  "Refrigerator",
+  "TV",
+  "Washing Machine",
+  "Electrical",
+];
+
+const VALID_MODES: ServiceMode[] = ["Home Visit", "Shop Drop-off"];
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// GET /api/services/my — Technician's own services
+router.get(
+  "/my",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const services = await servicesCollection()
+        .find({ technicianEmail: req.user!.email })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      const enriched = await attachServiceRatings(services);
+      res.json({ success: true, data: enriched });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // GET /api/services/featured — Latest 6 approved & available services
 router.get("/featured", async (_req: Request, res: Response, next) => {
@@ -140,5 +173,240 @@ router.get("/:id", async (req: Request, res: Response, next) => {
     next(error);
   }
 });
+
+// POST /api/services — Technician creates a service (pending approval)
+router.post(
+  "/",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const {
+        title,
+        category,
+        description,
+        image,
+        basePrice,
+        estimatedDuration,
+        serviceMode,
+        serviceArea,
+      } = req.body;
+
+      if (
+        !title?.trim() ||
+        !description?.trim() ||
+        !image?.trim() ||
+        !estimatedDuration?.trim() ||
+        !serviceArea?.trim()
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "All service fields are required",
+        });
+        return;
+      }
+
+      if (!VALID_CATEGORIES.includes(category)) {
+        res.status(400).json({ success: false, message: "Invalid service category" });
+        return;
+      }
+
+      if (!VALID_MODES.includes(serviceMode)) {
+        res.status(400).json({ success: false, message: "Invalid service mode" });
+        return;
+      }
+
+      const parsedPrice = Number(basePrice);
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        res.status(400).json({
+          success: false,
+          message: "Base price must be a positive number",
+        });
+        return;
+      }
+
+      const newService: ServiceDoc = {
+        title: title.trim(),
+        category,
+        description: description.trim(),
+        image: image.trim(),
+        basePrice: parsedPrice,
+        estimatedDuration: estimatedDuration.trim(),
+        serviceMode,
+        serviceArea: serviceArea.trim(),
+        technicianName: req.user!.name,
+        technicianEmail: req.user!.email,
+        approvalStatus: "pending",
+        isAvailable: true,
+        createdAt: new Date(),
+      };
+
+      const result = await servicesCollection().insertOne(newService);
+      res.status(201).json({
+        success: true,
+        message: "Service created and waiting for admin approval",
+        data: { ...newService, _id: result.insertedId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PATCH /api/services/:id — Technician updates own service or toggles availability
+router.patch(
+  "/:id",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const id = String(req.params.id);
+      if (!ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      const existing = await servicesCollection().findOne({ _id: new ObjectId(id) });
+      if (!existing) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      if (existing.technicianEmail !== req.user!.email) {
+        res.status(403).json({
+          success: false,
+          message: "Forbidden: You can only edit your own services",
+        });
+        return;
+      }
+
+      const {
+        title,
+        category,
+        description,
+        image,
+        basePrice,
+        estimatedDuration,
+        serviceMode,
+        serviceArea,
+        isAvailable,
+      } = req.body;
+
+      const updateFields: Partial<ServiceDoc> = { updatedAt: new Date() };
+      let contentEdited = false;
+
+      if (typeof title === "string" && title.trim()) {
+        updateFields.title = title.trim();
+        contentEdited = true;
+      }
+      if (category !== undefined) {
+        if (!VALID_CATEGORIES.includes(category)) {
+          res.status(400).json({ success: false, message: "Invalid service category" });
+          return;
+        }
+        updateFields.category = category;
+        contentEdited = true;
+      }
+      if (typeof description === "string" && description.trim()) {
+        updateFields.description = description.trim();
+        contentEdited = true;
+      }
+      if (typeof image === "string" && image.trim()) {
+        updateFields.image = image.trim();
+        contentEdited = true;
+      }
+      if (basePrice !== undefined) {
+        const parsedPrice = Number(basePrice);
+        if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+          res.status(400).json({
+            success: false,
+            message: "Base price must be a positive number",
+          });
+          return;
+        }
+        updateFields.basePrice = parsedPrice;
+        contentEdited = true;
+      }
+      if (typeof estimatedDuration === "string" && estimatedDuration.trim()) {
+        updateFields.estimatedDuration = estimatedDuration.trim();
+        contentEdited = true;
+      }
+      if (serviceMode !== undefined) {
+        if (!VALID_MODES.includes(serviceMode)) {
+          res.status(400).json({ success: false, message: "Invalid service mode" });
+          return;
+        }
+        updateFields.serviceMode = serviceMode;
+        contentEdited = true;
+      }
+      if (typeof serviceArea === "string" && serviceArea.trim()) {
+        updateFields.serviceArea = serviceArea.trim();
+        contentEdited = true;
+      }
+      if (typeof isAvailable === "boolean") {
+        updateFields.isAvailable = isAvailable;
+      }
+
+      // Per spec: editing a service resets approvalStatus back to 'pending'
+      if (contentEdited) {
+        updateFields.approvalStatus = "pending";
+      }
+
+      const updated = await servicesCollection().findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: updateFields },
+        { returnDocument: "after" }
+      );
+
+      res.json({
+        success: true,
+        message: contentEdited
+          ? "Service updated and sent for admin re-approval"
+          : "Service availability updated",
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/services/:id — Technician deletes own service
+router.delete(
+  "/:id",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const id = String(req.params.id);
+      if (!ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      const existing = await servicesCollection().findOne({ _id: new ObjectId(id) });
+      if (!existing) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      if (existing.technicianEmail !== req.user!.email) {
+        res.status(403).json({
+          success: false,
+          message: "Forbidden: You can only delete your own services",
+        });
+        return;
+      }
+
+      await servicesCollection().deleteOne({ _id: new ObjectId(id) });
+      res.json({
+        success: true,
+        message: "Service deleted successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 export default router;
