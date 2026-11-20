@@ -1,10 +1,16 @@
 import { Request, Response, Router } from "express";
-import { ObjectId } from "mongodb";
+import { Filter, ObjectId } from "mongodb";
 import { bookingsCollection, servicesCollection } from "../config/db.js";
-import { verifyCustomer, verifyToken } from "../middleware/auth.js";
-import { BookingDoc } from "../types/index.js";
+import { verifyCustomer, verifyTechnician, verifyToken } from "../middleware/auth.js";
+import { BookingDoc, BookingStatus } from "../types/index.js";
 
 const router = Router();
+
+const ALLOWED_TECH_TRANSITIONS: Record<string, BookingStatus[]> = {
+  requested: ["accepted", "rejected"],
+  accepted: ["in-progress"],
+  "in-progress": ["completed"],
+};
 
 // POST /api/bookings — Customer creates a repair request
 router.post(
@@ -278,6 +284,112 @@ router.patch(
       res.json({
         success: true,
         message: "Thank you for your review",
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /api/bookings/technician — Technician's incoming repair requests
+router.get(
+  "/technician",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const statusFilter =
+        typeof req.query.status === "string" ? req.query.status.trim() : "";
+
+      const filter: Filter<BookingDoc> = {
+        technicianEmail: req.user!.email,
+      };
+
+      if (statusFilter && statusFilter !== "All") {
+        filter.status = statusFilter as BookingStatus;
+      }
+
+      const bookings = await bookingsCollection()
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json({ success: true, data: bookings });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PATCH /api/bookings/:id/status — Server-enforced job status pipeline
+router.patch(
+  "/:id/status",
+  verifyToken,
+  verifyTechnician,
+  async (req: Request, res: Response, next) => {
+    try {
+      const id = String(req.params.id);
+      if (!ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: "Booking not found" });
+        return;
+      }
+
+      const booking = await bookingsCollection().findOne({ _id: new ObjectId(id) });
+      if (!booking) {
+        res.status(404).json({ success: false, message: "Booking not found" });
+        return;
+      }
+
+      if (booking.technicianEmail !== req.user!.email) {
+        res.status(403).json({
+          success: false,
+          message: "Forbidden: You can only update jobs assigned to you",
+        });
+        return;
+      }
+
+      const nextStatus = req.body.status as BookingStatus;
+      const allowedNext = ALLOWED_TECH_TRANSITIONS[booking.status] || [];
+
+      if (!allowedNext.includes(nextStatus)) {
+        res.status(400).json({
+          success: false,
+          message: `Invalid status transition from '${booking.status}' to '${nextStatus}'`,
+        });
+        return;
+      }
+
+      const now = new Date();
+      const setFields: Partial<BookingDoc> = {
+        status: nextStatus,
+        updatedAt: now,
+      };
+
+      if (nextStatus === "completed") {
+        const parsedAmount = Number(req.body.finalAmount);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+          res.status(400).json({
+            success: false,
+            message: "A valid finalAmount greater than 0 is required to complete a job",
+          });
+          return;
+        }
+        setFields.finalAmount = Number(parsedAmount.toFixed(2));
+      }
+
+      const updated = await bookingsCollection().findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        {
+          $set: setFields,
+          $push: { statusHistory: { status: nextStatus, changedAt: now } },
+        },
+        { returnDocument: "after" }
+      );
+
+      res.json({
+        success: true,
+        message: `Job status updated to '${nextStatus}'`,
         data: updated,
       });
     } catch (error) {
