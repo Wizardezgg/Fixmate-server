@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import servicesRouter from "./routes/services.js";
+import bookingsRouter from "./routes/bookings.js";
 
 dotenv.config();
 
@@ -55,6 +56,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/services", servicesRouter);
+app.use("/api/bookings", bookingsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
