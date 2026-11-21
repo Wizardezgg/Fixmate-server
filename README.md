@@ -1,30 +1,26 @@
-# FixMate — API Server
+# FixMate — Smart Device & Home Appliance Repair Platform (Server)
 
-Backend REST API for **FixMate**, an on-demand Smart Device & Home Appliance Repair Service Booking Platform. Built with Express.js, TypeScript, MongoDB, JWT role-based authentication, and Stripe.
-
-## Purpose
-FixMate solves two sides of the repair market:
-1. **Customers** can browse admin-approved repair services, submit requests, track every step of the job (`requested → accepted → in-progress → completed`), and pay online **only after** the repair is completed.
-2. **Technicians** can list repair services, manage incoming requests, and update job progress, while **Admins** moderate service listings, manage user roles, and monitor platform revenue.
+Backend REST API for **FixMate**, an on-demand Smart Device & Home Appliance Repair Service Booking Platform built with **Node.js**, **Express.js**, **TypeScript**, **MongoDB**, **JWT**, and **Stripe**.
 
 ## Live URLs
-- **API Server:** `<Add your deployed Server URL here>`
-- **Client App:** `<Add your deployed Vercel Client URL here>`
+- **API Server:** https://fixmate-server-coral.vercel.app
+- **Client App:** https://fixmatewz.vercel.app
 
-## Admin & Test Account Credentials
-- **Admin:** `admin@fixmate.com` / `Admin123!`
-- **Technician:** `arafat@fixmate.com` / `Arafat123!` (also `easin@fixmate.com` / `Easin123!`)
-- **Customer:** `sumon@fixmate.com` / `Sumon123!` (also `rifat@fixmate.com` / `Rifat123!`)
+## Purpose
+FixMate provides a structured, transparent repair marketplace:
+- **Customers** browse admin-approved services, submit repair requests, track job progress step by step, and pay via Stripe Checkout **only after** the job is marked completed.
+- **Technicians** create and manage repair listings, accept or reject requests, move jobs through the repair pipeline, and set the final amount upon completion.
+- **Admins** review and approve/reject service listings, manage user roles, monitor all bookings, and track Stripe revenue.
 
 ## Key Features
-- **JWT & Role-Based Middlewares (`401` / `403`):** `verifyToken`, `verifyCustomer`, `verifyTechnician`, and `verifyAdmin` verify Bearer JWTs and check live user roles in MongoDB.
-- **Server-Side Search, Filter, Sort & Pagination:** MongoDB queries on `GET /api/services` supporting keyword search, category & service mode filters, price/date sorting, `.skip()`/`.limit()` pagination, and aggregated review ratings.
-- **Server-Enforced Job Status Pipeline:** Validates strict state transitions (`requested → accepted | rejected | cancelled`, `accepted → in-progress`, `in-progress → completed` with `finalAmount > 0`), ownership checks, and duplicate active request prevention.
-- **Pay-After-Service Stripe Integration:** Checkout Sessions are gated on `completed` + `unpaid` bookings (pricing loaded strictly from MongoDB). Both `GET /api/payments/verify` and `POST /api/payments/webhook` (`checkout.session.completed`) record payments idempotently using a unique `stripeSessionId` index.
-- **Admin Moderation & Revenue Tracking:** User role management (prevents self-role modification), service approval/rejection queue, platform-wide booking monitor, and total revenue aggregation.
+- **JWT & Role-Based Middlewares (`401` / `403`):** `verifyToken`, `verifyCustomer`, `verifyTechnician`, and `verifyAdmin` verify Bearer JWTs and validate live user roles directly against MongoDB.
+- **Server-Side Search, Filter, Sort & Pagination:** MongoDB queries on `GET /api/services` supporting keyword search, category & service mode filters, price/newest sorting, `.skip()`/`.limit()` pagination, and aggregated customer ratings.
+- **Server-Enforced Job Status Pipeline:** Enforces valid state transitions (`requested → accepted | rejected | cancelled`, `accepted → in-progress`, `in-progress → completed` requiring `finalAmount > 0`), ownership checks, self-booking prevention, and duplicate active booking guards.
+- **Pay-After-Service Stripe Integration:** Checkout Sessions are gated strictly on `completed` + `unpaid` bookings with amounts loaded from MongoDB. Both `GET /api/payments/verify` and `POST /api/payments/webhook` (`checkout.session.completed`) record payments idempotently using a unique `stripeSessionId` index.
+- **Admin Moderation & Revenue Analytics:** User role management (blocking self-role changes), service approval queue, platform-wide booking monitor, and total revenue aggregation.
 
 ## API Endpoints Overview
-| Route | Method | Access |
+| Route | Method | Protection |
 | :--- | :--- | :--- |
 | `/api/health` | `GET` | Public |
 | `/api/services`, `/api/services/featured`, `/api/services/:id` | `GET` | Public |
