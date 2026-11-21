@@ -185,4 +185,38 @@ router.get(
   }
 );
 
+// POST /api/payments/webhook — Idempotent Stripe webhook handler
+router.post("/webhook", async (req: Request, res: Response) => {
+  const sig = req.headers["stripe-signature"];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!sig || typeof sig !== "string" || !webhookSecret) {
+    res.status(400).send("Webhook Error: Missing signature or secret");
+    return;
+  }
+
+  let event: Stripe.Event;
+  try {
+    const stripe = getStripeClient();
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Invalid signature";
+    res.status(400).send(`Webhook Error: ${message}`);
+    return;
+  }
+
+  try {
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.payment_status === "paid") {
+        await recordPaidSession(session);
+      }
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error("Webhook processing failed:", err);
+    res.status(500).json({ received: false });
+  }
+});
+
 export default router;
