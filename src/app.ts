@@ -5,6 +5,8 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import servicesRouter from "./routes/services.js";
 import bookingsRouter from "./routes/bookings.js";
 import paymentsRouter from "./routes/payments.js";
+import usersRouter from "./routes/users.js";
+import adminRouter from "./routes/admin.js";
 
 dotenv.config();
 
@@ -59,6 +61,8 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/services", servicesRouter);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/payments", paymentsRouter);
+app.use("/api/users", usersRouter);
+app.use("/api/admin", adminRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
