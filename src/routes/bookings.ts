@@ -36,10 +36,10 @@ router.post(
       }
 
       const description = typeof problemDescription === "string" ? problemDescription.trim() : "";
-      if (description.length < 20) {
+      if (!description) {
         res.status(400).json({
           success: false,
-          message: "Problem description must be at least 20 characters",
+          message: "Problem description is required",
         });
         return;
       }
