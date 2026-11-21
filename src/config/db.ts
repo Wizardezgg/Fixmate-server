@@ -9,23 +9,37 @@ const dbName = process.env.MONGODB_DB_NAME || "fixmate";
 
 let client: MongoClient | null = null;
 let dbInstance: Db | null = null;
+let connectPromise: Promise<Db> | null = null;
 
 export async function connectDB(): Promise<Db> {
   if (dbInstance) {
     return dbInstance;
   }
 
+  if (connectPromise) {
+    return connectPromise;
+  }
+
   if (!uri) {
     throw new Error("MONGODB_URI is not defined in environment variables.");
   }
 
-  client = new MongoClient(uri);
-  await client.connect();
-  dbInstance = client.db(dbName);
+  connectPromise = (async () => {
+    client = new MongoClient(uri);
+    await client.connect();
+    const db = client.db(dbName);
+    await ensureIndexes(db);
+    dbInstance = db;
+    console.log(`Connected to MongoDB database: ${dbName}`);
+    return db;
+  })();
 
-  await ensureIndexes(dbInstance);
-  console.log(`Connected to MongoDB database: ${dbName}`);
-  return dbInstance;
+  try {
+    return await connectPromise;
+  } catch (err) {
+    connectPromise = null;
+    throw err;
+  }
 }
 
 async function ensureIndexes(db: Db): Promise<void> {

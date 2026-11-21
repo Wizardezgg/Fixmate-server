@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { connectDB } from "./config/db.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import servicesRouter from "./routes/services.js";
 import bookingsRouter from "./routes/bookings.js";
@@ -41,6 +42,16 @@ app.use(
 // Preserve raw body for Stripe webhook signature verification
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "2mb" }));
+
+// Ensure MongoDB is connected in serverless environments (e.g. Vercel)
+app.use(async (_req, _res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/", (_req, res) => {
   res.json({
